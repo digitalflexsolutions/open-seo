@@ -1,0 +1,86 @@
+# Sentry production deploy of OpenSEO to Cloudflare (HRM-00367).
+# Manual only. Runs the security gate, deploys with Cloudflare Access sign-in,
+# then proves the Worker is not reachable without signing in.
+#
+# Repo secrets: CLOUDFLARE_API_TOKEN (sentry-cloudflare-openseo-deploy-prod),
+# DATAFORSEO_API_KEY. Account and allowed emails are not secret and set below.
+name: sentry-deploy-cloudflare
+
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_state_store:
+        description: "First deploy only: create alchemy's state-store Worker on the account"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentry-deploy-cloudflare
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: 724a72786548bf4a37d291ec21c684be
+
+jobs:
+  deploy:
+    if: github.repository == 'digitalflexsolutions/open-seo'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Security gate (0 critical, 0 high in production dependencies)
+        run: pnpm audit --prod --audit-level high
+
+      - name: Check secrets are present
+        run: |
+          for name in CLOUDFLARE_API_TOKEN DATAFORSEO_API_KEY; do
+            if [ -z "${!name}" ]; then echo "Missing repo secret $name"; exit 1; fi
+          done
+        env:
+          DATAFORSEO_API_KEY: ${{ secrets.DATAFORSEO_API_KEY }}
+
+      - name: Write .env.selfhost
+        run: |
+          umask 077
+          {
+            echo "DATAFORSEO_API_KEY=${DATAFORSEO_API_KEY}"
+            echo "AUTH_MODE=cloudflare_access"
+            echo "ACCESS_ALLOWED_EMAILS=jason@digitalflexsolutions.com,jason@sentrydigitalservices.com"
+            echo "OPENSEO_TELEMETRY_DISABLED=1"
+          } > .env.selfhost
+        env:
+          DATAFORSEO_API_KEY: ${{ secrets.DATAFORSEO_API_KEY }}
+
+      - name: Bootstrap alchemy state store (first deploy only)
+        if: inputs.bootstrap_state_store
+        run: pnpm alchemy cloudflare bootstrap
+
+      - name: Deploy (Workers, D1, KV, R2, Workflows, Access application)
+        run: |
+          set -o pipefail
+          pnpm deploy:selfhost --yes 2>&1 | tee deploy.log
+
+      - name: Verify Access blocks unauthenticated requests
+        run: |
+          URL=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | tail -1)
+          if [ -z "$URL" ]; then echo "Could not find Worker URL in deploy output"; exit 1; fi
+          echo "Worker URL: $URL"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "$URL/")
+          echo "Unauthenticated status: $CODE"
+          if [ "$CODE" = "200" ]; then echo "FAIL: Worker is publicly reachable"; exit 1; fi
+          echo "PASS: Access is in front of the Worker"
+
+      - name: Remove env file
+        if: always()
+        run: rm -f .env.selfhost
