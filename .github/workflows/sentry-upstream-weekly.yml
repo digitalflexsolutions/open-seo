@@ -1,0 +1,76 @@
+# Sentry weekly upstream update check (HRM-00367 OpenSEO adoption).
+# Every Monday 06:47 UK: merges new every-app/open-seo commits into a branch,
+# runs the security gate on the result, and opens a pull request for review.
+# Nothing is merged or deployed automatically.
+name: sentry-upstream-weekly
+
+on:
+  schedule:
+    - cron: "47 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch upstream
+        id: up
+        run: |
+          git remote add upstream https://github.com/every-app/open-seo.git
+          git fetch upstream main
+          NEW=$(git rev-list --count HEAD..upstream/main)
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Upstream commits not yet in fork: $NEW"
+      - name: Merge upstream into weekly branch
+        if: steps.up.outputs.new != '0'
+        id: merge
+        run: |
+          BR="upstream-sync/$(date -u +%Y-%m-%d)"
+          echo "branch=$BR" >> "$GITHUB_OUTPUT"
+          git config user.name "sentry-openseo-bot"
+          git config user.email "jason@digitalflexsolutions.com"
+          git checkout -b "$BR"
+          if git merge --no-edit upstream/main; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: pnpm/action-setup@v4
+        if: steps.up.outputs.new != '0' && steps.merge.outputs.conflict == 'false'
+      - uses: actions/setup-node@v4
+        if: steps.up.outputs.new != '0' && steps.merge.outputs.conflict == 'false'
+        with:
+          node-version: 22
+      - name: Security gate on merged code
+        if: steps.up.outputs.new != '0' && steps.merge.outputs.conflict == 'false'
+        id: gate
+        continue-on-error: true
+        run: |
+          pnpm install --no-frozen-lockfile
+          pnpm audit --prod --audit-level high
+          pnpm test:ci
+          pnpm build
+      - name: Push branch and open pull request
+        if: steps.up.outputs.new != '0' && steps.merge.outputs.conflict == 'false'
+        run: |
+          git push origin "${{ steps.merge.outputs.branch }}"
+          RESULT="PASS"; [ "${{ steps.gate.outcome }}" = "success" ] || RESULT="FAIL"
+          gh pr create --base main --head "${{ steps.merge.outputs.branch }}" \
+            --title "Weekly upstream update ${{ steps.up.outputs.new }} commits - security gate ${RESULT}" \
+            --body "Automated weekly merge of every-app/open-seo main. Security gate (prod audit at high, tests, build): ${RESULT}. Review before merging; nothing is deployed automatically."
+      - name: Report merge conflict
+        if: steps.merge.outputs.conflict == 'true'
+        run: |
+          gh issue create --title "Weekly upstream update blocked by merge conflict ($(date -u +%Y-%m-%d))" \
+            --body "${{ steps.up.outputs.new }} upstream commits could not be merged automatically. Manual merge needed."
+          exit 1
