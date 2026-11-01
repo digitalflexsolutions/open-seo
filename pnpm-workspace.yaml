@@ -69,7 +69,7 @@ overrides:
   # GHSA-737v-mqg7-c878 — waiting on better-auth
   defu: "^6.1.5"
   # GHSA-p98j-92pf-mc4p plus earlier XSS advisories — waiting on posthog-js
-  dompurify: "^3.4.16"
+  dompurify: "^3.4.17"
   # GHSA-v2hh-gcrm-f6hx, GHSA-7p8r-x3mc-p8w7, GHSA-4c8g-83qw-93j6 — waiting on @modelcontextprotocol/sdk
   fast-uri: "^3.1.6"
   # 9 advisories incl. GHSA-88fw-hqm2-52qc (CORS) — waiting on @modelcontextprotocol/sdk
@@ -97,15 +97,19 @@ overrides:
   # September 2026 advisories: keep these fixes within each supported major.
   "@ai-sdk/provider-utils@4": "^4.0.33"
   "@hono/node-server@1": "^1.19.15"
-  "body-parser@2": "^2.3.0"
+  "body-parser@2": "^2.4.0"
   browserslist: "^4.28.7"
   baseline-browser-mapping: "^2.11.0"
   # autumn-js uses query-string 9, which supports the patched ESM decoder.
-  "query-string>decode-uri-component": "^0.5.0"
+  "query-string>decode-uri-component": "^0.5.1"
   "fflate@0.4": "~0.4.9"
   mysql2: "^3.23.1"
   "nanoid@3": "^3.3.18"
   "toml@4": "^4.2.0"
+  # Nov 2026 floors (Sentry fork): IPv4-mapped IPv6 spoofing (MCP SDK > express),
+  # seroval deserialisation fixes (better-auth, TanStack router).
+  "proxy-addr@2": "^2.0.8"
+  "seroval@1": "^1.6.8"
 
 # Cloudflare echoes targeted placement back as `{ mode: "targeted" }` without
 # `region`; 0.28.2's response schema requires it, so alchemy fails a deploy
