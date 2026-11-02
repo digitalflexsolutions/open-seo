@@ -2,8 +2,11 @@
 # Manual only. Runs the security gate, deploys with Cloudflare Access sign-in,
 # then proves the Worker is not reachable without signing in.
 #
-# Repo secrets: CLOUDFLARE_API_TOKEN (sentry-cloudflare-openseo-deploy-prod),
-# DATAFORSEO_API_KEY. Account and allowed emails are not secret and set below.
+# Repo secrets are named after their Infisical entry (project hermes, env prod):
+#   SENTRY_CLOUDFLARE_OPENSEO_DEPLOY_PROD = sentry-cloudflare-openseo-deploy-prod
+#   SENTRY_DATAFORSEO_OPENSEO_PROD        = sentry-dataforseo-openseo-prod
+# CLOUDFLARE_API_TOKEN is accepted as a temporary fallback for the first token.
+# Account and allowed emails are not secret and set below.
 name: sentry-deploy-cloudflare
 
 on:
@@ -22,7 +25,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.SENTRY_CLOUDFLARE_OPENSEO_DEPLOY_PROD || secrets.CLOUDFLARE_API_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: 724a72786548bf4a37d291ec21c684be
 
 jobs:
@@ -45,10 +48,10 @@ jobs:
       - name: Check secrets are present
         run: |
           for name in CLOUDFLARE_API_TOKEN DATAFORSEO_API_KEY; do
-            if [ -z "${!name}" ]; then echo "Missing repo secret $name"; exit 1; fi
+            if [ -z "${!name}" ]; then echo "Missing value for $name (see secret names at top of this file)"; exit 1; fi
           done
         env:
-          DATAFORSEO_API_KEY: ${{ secrets.DATAFORSEO_API_KEY }}
+          DATAFORSEO_API_KEY: ${{ secrets.SENTRY_DATAFORSEO_OPENSEO_PROD }}
 
       - name: Write .env.selfhost
         run: |
@@ -60,7 +63,7 @@ jobs:
             echo "OPENSEO_TELEMETRY_DISABLED=1"
           } > .env.selfhost
         env:
-          DATAFORSEO_API_KEY: ${{ secrets.DATAFORSEO_API_KEY }}
+          DATAFORSEO_API_KEY: ${{ secrets.SENTRY_DATAFORSEO_OPENSEO_PROD }}
 
       - name: Bootstrap alchemy state store (first deploy only)
         if: inputs.bootstrap_state_store
